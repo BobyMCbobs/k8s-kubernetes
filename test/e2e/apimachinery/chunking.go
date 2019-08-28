@@ -122,6 +122,32 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 		gomega.Expect(list.Items).To(gomega.HaveLen(numberOfTotalResources))
 	})
 
+	ginkgo.It("should chunk lists of Pods", func() {
+		ns := f.Namespace.Name
+		c := f.ClientSet
+		client := c.CoreV1().PodTemplates(ns)
+		loopCount := int64(0)
+		chunks := map[int64][]v1.PodTemplate{}
+		for {
+			opts := metav1.ListOptions{}
+			opts.Limit = int64(rand.Int31n(numberOfTotalResources/10) + 1)
+			list, err := client.List(opts)
+			framework.ExpectNoError(err, "failed fetching PodTemplate list")
+
+			chunks[loopCount] = list.Items
+			if loopCount != 0 {
+				chunkListItemDifference := fmt.Sprintf("%b", chunks[loopCount]) == fmt.Sprintf("%b", chunks[loopCount-1])
+				framework.ExpectNoError(chunkListItemDifference, "current chunk appears the same as previous")
+			}
+			loopCount += 1
+			e2elog.Logf("Fetched %d chunks; Continue: %s; Items: %s", loopCount, list.Continue, fmt.Sprintf("%T", list.Items))
+
+			if len(list.Continue) == 0 {
+				break
+			}
+		}
+	})
+
 	ginkgo.It("should support continue listing from the last key if the original version has been compacted away, though the list is inconsistent [Slow]", func() {
 		ns := f.Namespace.Name
 		c := f.ClientSet
