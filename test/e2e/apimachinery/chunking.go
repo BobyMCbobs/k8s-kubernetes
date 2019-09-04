@@ -127,22 +127,19 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 		c := f.ClientSet
 		client := c.CoreV1().PodTemplates(ns)
 		loopCount := int64(0)
-		chunks := map[int64][]v1.PodTemplate{}
 		for {
 			opts := metav1.ListOptions{}
 			opts.Limit = int64(rand.Int31n(numberOfTotalResources/10) + 1)
 			list, err := client.List(opts)
 			framework.ExpectNoError(err, "failed fetching PodTemplate list")
 
-			chunks[loopCount] = list.Items
-			if loopCount != 0 {
-				chunkListItemDifference := fmt.Sprintf("%b", chunks[loopCount]) == fmt.Sprintf("%b", chunks[loopCount-1])
-				framework.ExpectNoError(chunkListItemDifference, "current chunk appears the same as previous")
+			if loopCount > 0 && len(list.Continue) > 0 {
+				gomega.Expect(list.Continue[loopCount]).NotTo(gomega.Equal(list.Continue[loopCount-1]), "chunks are the same")
 			}
 			loopCount += 1
 			e2elog.Logf("Fetched %d chunks; Continue: %s; Items: %s", loopCount, list.Continue, fmt.Sprintf("%T", list.Items))
 
-			if len(list.Continue) == 0 {
+			if len(list.Continue) == 0 || loopCount == int64(len(list.Continue)) {
 				break
 			}
 		}
