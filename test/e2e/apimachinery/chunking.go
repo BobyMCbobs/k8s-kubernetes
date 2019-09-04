@@ -136,7 +136,7 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 			if loopCount > 0 && len(list.Continue) > 0 {
 				gomega.Expect(list.Continue[loopCount]).NotTo(gomega.Equal(list.Continue[loopCount-1]), "chunks are the same")
 			}
-			loopCount += 1
+			loopCount++
 			e2elog.Logf("Fetched %d chunks; Continue: %s; Items: %s", loopCount, list.Continue, fmt.Sprintf("%T", list.Items))
 
 			if len(list.Continue) == 0 || loopCount == int64(len(list.Continue)) {
