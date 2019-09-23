@@ -27,6 +27,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/uuid"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -47,6 +48,7 @@ func shouldCheckRemainingItem() bool {
 const numberOfTotalResources = 400
 
 var _ = SIGDescribe("Servers with support for API chunking", func() {
+	specUUID := uuid.NewUUID()
 	f := framework.NewDefaultFramework("chunking")
 
 	ginkgo.BeforeEach(func() {
@@ -59,6 +61,9 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 				_, err := client.Create(&v1.PodTemplate{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: fmt.Sprintf("template-%04d", i),
+						Labels: map[string]string{
+							"podUUIDGroup": string(specUUID),
+						},
 					},
 					Template: v1.PodTemplateSpec{
 						Spec: v1.PodSpec{
@@ -131,8 +136,12 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 		loopCount := int64(0)
 		var continueChunkHistory []string
 		ginkgo.By("retrieving invidual chunk list of templates")
+		podLabelSelector := fmt.Sprintf("podUUIDGroup=%v", specUUID)
+		e2elog.Logf("podLabelSelector: %v", podLabelSelector)
 		for {
-			opts := metav1.ListOptions{}
+			opts := metav1.ListOptions{
+				LabelSelector: string(podLabelSelector),
+			}
 			if loopCount > 0 && len(continueChunkHistory) > 0 {
 				opts.Continue = continueChunkHistory[loopCount-1]
 			}
@@ -166,7 +175,10 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 		gomega.Expect(len(continueChunkHistory)+1).To(gomega.Equal(numberOfTotalResources), "number of resources created should match the number iterated through")
 
 		ginkgo.By("retrieving those results all at once")
-		opts := metav1.ListOptions{Limit: numberOfTotalResources + 1}
+		opts := metav1.ListOptions{
+			Limit:         numberOfTotalResources + 1,
+			LabelSelector: string(podLabelSelector),
+		}
 		list, err := client.List(opts)
 		framework.ExpectNoError(err, "failed to list pod templates in namespace: %s, given limit: %d", ns, opts.Limit)
 		gomega.Expect(list.Items).To(gomega.HaveLen(numberOfTotalResources))
