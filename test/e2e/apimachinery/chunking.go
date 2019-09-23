@@ -23,6 +23,8 @@ import (
 	"reflect"
 	"time"
 
+	"encoding/base64"
+
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 
@@ -127,22 +129,47 @@ var _ = SIGDescribe("Servers with support for API chunking", func() {
 		c := f.ClientSet
 		client := c.CoreV1().PodTemplates(ns)
 		loopCount := int64(0)
+		var continueChunkHistory []string
+		ginkgo.By("retrieving invidual chunk list of templates")
 		for {
 			opts := metav1.ListOptions{}
-			opts.Limit = int64(rand.Int31n(numberOfTotalResources/10) + 1)
+			if loopCount > 0 && len(continueChunkHistory) > 0 {
+				opts.Continue = continueChunkHistory[loopCount-1]
+			}
+			opts.Limit = 1
 			list, err := client.List(opts)
 			framework.ExpectNoError(err, "failed fetching PodTemplate list")
 
-			if loopCount > 0 && len(list.Continue) > 0 {
-				gomega.Expect(list.Continue[loopCount]).NotTo(gomega.Equal(list.Continue[loopCount-1]), "chunks are the same")
+			if list.Continue == "" {
+				e2elog.Logf("reached end of chunk list")
+				break
+			} else {
+				e2elog.Logf("list.Continue: %v", list.Continue)
+			}
+
+			continueChunkHistory = append(continueChunkHistory, list.Continue)
+
+			if loopCount > 0 && len(continueChunkHistory) > 0 {
+				gomega.Expect(continueChunkHistory[loopCount]).NotTo(gomega.Equal(continueChunkHistory[loopCount-1]), "chunks are the same")
+				if continueChunkHistory[loopCount] == continueChunkHistory[loopCount-1] {
+					e2elog.Logf("Chunk continue colition at %v", loopCount)
+				}
 			}
 			loopCount++
-			e2elog.Logf("Fetched %d chunks; Continue: %s; Items: %s", loopCount, list.Continue, fmt.Sprintf("%T", list.Items))
 
-			if len(list.Continue) == 0 || loopCount == int64(len(list.Continue)) {
-				break
-			}
+			continueDecode, _ := base64.StdEncoding.DecodeString(list.Continue)
+			e2elog.Logf("Fetched %d chunks; Continue: %s; Items: %s; Continue unwrapped value: %v", loopCount, list.Continue, fmt.Sprintf("%T", list.Items), string(continueDecode))
+
 		}
+
+		ginkgo.By("making sure that total number of resources created matches total number of resources discovered by fetching indiviual chunks")
+		gomega.Expect(len(continueChunkHistory)+1).To(gomega.Equal(numberOfTotalResources), "number of resources created should match the number iterated through")
+
+		ginkgo.By("retrieving those results all at once")
+		opts := metav1.ListOptions{Limit: numberOfTotalResources + 1}
+		list, err := client.List(opts)
+		framework.ExpectNoError(err, "failed to list pod templates in namespace: %s, given limit: %d", ns, opts.Limit)
+		gomega.Expect(list.Items).To(gomega.HaveLen(numberOfTotalResources))
 	})
 
 	ginkgo.It("should support continue listing from the last key if the original version has been compacted away, though the list is inconsistent [Slow]", func() {
